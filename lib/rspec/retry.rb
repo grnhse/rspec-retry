@@ -83,14 +83,18 @@ module RSpec
     end
 
     def run
+      ex.metadata[:retry_until_fail] ?
+        run_until_fail :
+        run_until_pass
+    end
+
+    def run_until_pass
       example = current_example
 
       loop do
         if verbose_retry?
           if attempts > 0
-            message = "RSpec::Retry: #{ordinalize(attempts + 1)} try #{example.location}"
-            message = "\n" + message if attempts == 1
-            RSpec.configuration.reporter.message(message)
+            log_attempt(example, attempts)
           end
         end
 
@@ -111,10 +115,33 @@ module RSpec
 
         if verbose_retry? && display_try_failure_messages?
           if attempts != (retry_count-1)
-            try_message = "#{ordinalize(attempts + 1)} Try error in #{example.location}:\n #{example.exception.to_s} \n"
-            RSpec.configuration.reporter.message(try_message)
+            log_failure(example, attempts)
           end
         end
+
+        example.example_group_instance.clear_lets if clear_lets
+
+        sleep sleep_interval if sleep_interval.to_i > 0
+      end
+    end
+
+    def run_until_fail
+      example = current_example
+
+      loop do
+        log_attempt(example, attempts) if verbose_retry?
+
+        example.clear_exception
+        ex.run
+
+        self.attempts += 1
+
+        if example.exception
+          log_failure(example, attempts)
+          break
+        end
+
+        break if attempts >= retry_count
 
         example.example_group_instance.clear_lets if clear_lets
 
@@ -136,6 +163,20 @@ module RSpec
         else    "#{number}th"
         end
       end
+    end
+
+    def log_attempt(example, attempts)
+      message = "RSpec::Retry: #{ordinalize(attempts + 1)} try #{example.location}"
+      message = "\n" + message if attempts == 1
+
+      RSpec.configuration.reporter.message(message)
+    end
+
+    def log_failure(example, attempts)
+      try_message = "#{ordinalize(attempts + 1)} Try error" \
+        "in #{example.location}:\n #{example.exception.to_s} \n"
+
+      RSpec.configuration.reporter.message(try_message)
     end
   end
 end
